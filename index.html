@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>俄羅斯方塊</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#f3f4f6;--card:#fff;--fg:#111827;--mut:#6b7280;--btn:#e5e7eb;--acc:#4f46e5}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f172a;--card:#1e293b;--fg:#f1f5f9;--mut:#94a3b8;--btn:#334155;--acc:#818cf8}}
+:root[data-theme="dark"]{--bg:#0f172a;--card:#1e293b;--fg:#f1f5f9;--mut:#94a3b8;--btn:#334155;--acc:#818cf8}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Noto Sans TC","PingFang TC",sans-serif;display:flex;justify-content:center;touch-action:manipulation;user-select:none}
+.wrap{width:100%;max-width:460px;padding:10px 12px 16px}
+h1{font-size:18px;margin:4px 0 8px;text-align:center}
+.game{display:flex;gap:10px;align-items:flex-start}
+#board{flex:1;min-width:0;max-height:60vh;aspect-ratio:1/2;background:#111827;border-radius:8px;display:block;width:auto}
+.side{width:84px;display:flex;flex-direction:column;gap:8px}
+.card{background:var(--card);border-radius:8px;padding:6px;text-align:center}
+.card small{color:var(--mut);font-size:11px;display:block}
+.card b{font-size:17px}
+.card canvas{width:60px;height:60px;display:block;margin:2px auto 0}
+.ctl{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px}
+button{border:0;border-radius:10px;background:var(--btn);color:var(--fg);font-size:20px;padding:14px 0;font-family:inherit;touch-action:manipulation}
+button:active{background:var(--acc);color:#fff}
+.row2{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.row2 button{font-size:14px;padding:10px 0}
+.tip{color:var(--mut);font-size:12px;text-align:center;margin-top:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>🧱 俄羅斯方塊</h1>
+<div class="game">
+<canvas id="board" width="300" height="600"></canvas>
+<div class="side">
+<div class="card"><small>分數</small><b id="sc">0</b></div>
+<div class="card"><small>等級</small><b id="lv">1</b></div>
+<div class="card"><small>消除行數</small><b id="ln">0</b></div>
+<div class="card"><small>最高分</small><b id="hi">0</b></div>
+<div class="card"><small>下一個</small><canvas id="nx" width="60" height="60"></canvas></div>
+<div class="card"><small>保留 (C)</small><canvas id="hd" width="60" height="60"></canvas></div>
+</div>
+</div>
+<div class="ctl">
+<button data-a="left">◀</button>
+<button data-a="rot">⟳</button>
+<button data-a="right">▶</button>
+<button data-a="down">▼</button>
+<button data-a="drop">⤓</button>
+<div class="row2"><button data-a="hold">保留</button><button data-a="pause">開始 / 暫停</button></div>
+</div>
+<div class="tip">鍵盤：← → 移動　↑ 旋轉　↓ 加速　空白 直落　C 保留　P 暫停</div>
+</div>
+<script>
+const COLS=10,ROWS=20,S=30;
+const SH={I:[[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],O:[[1,1],[1,1]],T:[[0,1,0],[1,1,1],[0,0,0]],S:[[0,1,1],[1,1,0],[0,0,0]],Z:[[1,1,0],[0,1,1],[0,0,0]],J:[[1,0,0],[1,1,1],[0,0,0]],L:[[0,0,1],[1,1,1],[0,0,0]]};
+const COL={I:'#22d3ee',O:'#facc15',T:'#a855f7',S:'#22c55e',Z:'#ef4444',J:'#3b82f6',L:'#f97316'};
+const cv=document.getElementById('board'),cx=cv.getContext('2d');
+const nxc=document.getElementById('nx').getContext('2d'),hdc=document.getElementById('hd').getContext('2d');
+const $=id=>document.getElementById(id);
+let board,cur,next,hold,canHold,bag=[],score,lines,level,state='idle',last=0,acc=0,best=0;
+try{best=+localStorage.getItem('tetris-best')||0}catch(e){}
+$('hi').textContent=best;
+
+function rnd(){if(!bag.length){bag=Object.keys(SH);for(let i=bag.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[bag[i],bag[j]]=[bag[j],bag[i]]}}return bag.pop()}
+function mk(t){const m=SH[t].map(r=>r.slice());return{t,m,x:(COLS-m[0].length)/2|0,y:0}}
+function rotm(m){return m[0].map((_,i)=>m.map(r=>r[i]).reverse())}
+function hit(m,x,y){for(let r=0;r<m.length;r++)for(let c=0;c<m[r].length;c++)if(m[r][c]){const nx=x+c,ny=y+r;if(nx<0||nx>=COLS||ny>=ROWS||(ny>=0&&board[ny][nx]))return true}return false}
+
+function reset(){board=Array.from({length:ROWS},()=>Array(COLS).fill(null));score=0;lines=0;level=1;hold=null;canHold=true;bag=[];next=mk(rnd());spawn();upd();state='play';last=performance.now();acc=0}
+function spawn(){cur=next;next=mk(rnd());canHold=true;if(hit(cur.m,cur.x,cur.y)){state='over';if(score>best){best=score;try{localStorage.setItem('tetris-best',best)}catch(e){}}upd()}}
+function mv(dx,dy){if(state!=='play')return false;if(!hit(cur.m,cur.x+dx,cur.y+dy)){cur.x+=dx;cur.y+=dy;return true}return false}
+function rot(){if(state!=='play')return;const m=rotm(cur.m);for(const k of [0,-1,1,-2,2])if(!hit(m,cur.x+k,cur.y)){cur.m=m;cur.x+=k;return}}
+function lock(){cur.m.forEach((r,i)=>r.forEach((v,j)=>{if(v&&cur.y+i>=0)board[cur.y+i][cur.x+j]=cur.t}));
+ let n=0;for(let y=ROWS-1;y>=0;y--)if(board[y].every(v=>v)){board.splice(y,1);board.unshift(Array(COLS).fill(null));n++;y++}
+ if(n){score+=[0,100,300,500,800][n]*level;lines+=n;level=1+(lines/10|0)}
+ spawn();upd()}
+function soft(){if(!mv(0,1)){lock()}else score+=1;upd()}
+function drop(){if(state!=='play')return;let d=0;while(!hit(cur.m,cur.x,cur.y+1)){cur.y++;d++}score+=d*2;lock()}
+function doHold(){if(state!=='play'||!canHold)return;const t=cur.t;if(hold){cur=mk(hold)}else{cur=next;next=mk(rnd())}hold=t;canHold=false;if(hit(cur.m,cur.x,cur.y)){state='over';upd()}}
+function pause(){if(state==='play'){state='pause'}else if(state==='pause'){state='play';last=performance.now()}else reset()}
+function upd(){$('sc').textContent=score;$('lv').textContent=level;$('ln').textContent=lines;$('hi').textContent=Math.max(best,score)}
+
+function cell(c,x,y,s,col,a){c.globalAlpha=a||1;c.fillStyle=col;c.fillRect(x*s+1,y*s+1,s-2,s-2);c.fillStyle='rgba(255,255,255,.25)';c.fillRect(x*s+1,y*s+1,s-2,4);c.globalAlpha=1}
+function mini(c,t){c.clearRect(0,0,60,60);if(!t)return;const m=SH[t],s=12,ox=(60-m[0].length*s)/2/s,oy=(60-m.length*s)/2/s;m.forEach((r,i)=>r.forEach((v,j)=>{if(v)cell(c,ox+j,oy+i,s,COL[t])}))}
+function msg(t,sub){cx.fillStyle='rgba(0,0,0,.65)';cx.fillRect(0,0,300,600);cx.fillStyle='#fff';cx.textAlign='center';cx.font='bold 34px sans-serif';cx.fillText(t,150,285);cx.font='16px sans-serif';cx.fillText(sub,150,320)}
+function draw(){cx.clearRect(0,0,300,600);cx.strokeStyle='rgba(255,255,255,.06)';cx.lineWidth=1;
+ for(let i=1;i<COLS;i++){cx.beginPath();cx.moveTo(i*S,0);cx.lineTo(i*S,600);cx.stroke()}
+ for(let i=1;i<ROWS;i++){cx.beginPath();cx.moveTo(0,i*S);cx.lineTo(300,i*S);cx.stroke()}
+ if(board)board.forEach((r,y)=>r.forEach((t,x)=>{if(t)cell(cx,x,y,S,COL[t])}));
+ if(cur&&state!=='idle'){let gy=cur.y;while(!hit(cur.m,cur.x,gy+1))gy++;
+  cur.m.forEach((r,i)=>r.forEach((v,j)=>{if(v){cell(cx,cur.x+j,gy+i,S,COL[cur.t],.2);cell(cx,cur.x+j,cur.y+i,S,COL[cur.t])}}))}
+ if(state==='idle')msg('俄羅斯方塊','點此或按 Enter 開始');
+ if(state==='pause')msg('已暫停','按「開始 / 暫停」繼續');
+ if(state==='over')msg('遊戲結束','分數 '+score+'　點此重新開始');
+ mini(nxc,next&&next.t);mini(hdc,hold)}
+function loop(t){if(state==='play'){acc+=t-last;const iv=Math.max(90,800-(level-1)*70);while(acc>=iv){acc-=iv;if(!mv(0,1))lock();if(state!=='play')break}}last=t;draw();requestAnimationFrame(loop)}
+requestAnimationFrame(loop);
+
+const act={left:()=>mv(-1,0),right:()=>mv(1,0),down:soft,rot,drop,hold:doHold,pause};
+document.querySelectorAll('[data-a]').forEach(b=>{const a=b.dataset.a;let tm,iv;const stop=()=>{clearTimeout(tm);clearInterval(iv)};
+ b.addEventListener('pointerdown',e=>{e.preventDefault();act[a]();if(a==='left'||a==='right'||a==='down'){tm=setTimeout(()=>{iv=setInterval(act[a],a==='down'?50:80)},220)}});
+ ['pointerup','pointerleave','pointercancel'].forEach(ev=>b.addEventListener(ev,stop))});
+cv.addEventListener('pointerdown',()=>{if(state==='idle'||state==='over')reset()});
+document.addEventListener('keydown',e=>{const k=e.key;
+ if(k==='Enter'&&(state==='idle'||state==='over')){reset();return}
+ const m={ArrowLeft:'left',ArrowRight:'right',ArrowDown:'down',ArrowUp:'rot',' ':'drop',c:'hold',C:'hold',p:'pause',P:'pause'}[k];
+ if(m){e.preventDefault();act[m]()}});
+</script>
+</body>
+</html>
